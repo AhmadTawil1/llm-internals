@@ -1,0 +1,122 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+wheels/
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ---- Virtual environments ----
+.venv/
+venv/
+env/
+ENV/
+
+# ---- uv ----
+# Lockfile is committed (uv.lock) — don't ignore it.
+# But ignore the cache.
+.uv-cache/
+
+# ---- Testing & coverage ----
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# ---- Type checkers & linters ----
+.mypy_cache/
+.dmypy.json
+.ruff_cache/
+.pyre/
+.pytype/
+
+# ---- Jupyter / notebooks ----
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+profile_default/
+ipython_config.py
+
+# ---- ML / experiment artifacts ----
+# Weights & Biases
+wandb/
+
+# Model checkpoints & weights
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+*.gguf
+*.onnx
+checkpoints/
+runs/
+outputs/
+lightning_logs/
+
+# Hugging Face cache (if you set HF_HOME locally)
+.cache/
+hf_cache/
+
+# Datasets — never commit raw data
+data/
+datasets/
+*.arrow
+*.parquet
+
+# TensorBoard
+events.out.tfevents.*
+
+# ---- Secrets & env ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.yaml
+credentials.json
+
+# ---- IDE / editor ----
+.vscode/
+!.vscode/settings.json.example
+.idea/
+*.swp
+*.swo
+*~
+.cursor/
+
+# ---- OS ----
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ---- Logs & temp ----
+*.log
+logs/
+tmp/
+temp/
+
+# ---- Project-specific ----
+# Local config overrides (commit configs/ but ignore personal tweaks)
+configs/local.yaml
+configs/*.local.yaml
+
+# Benchmark output dumps (commit summary, not raw)
+scripts/bench_output/
