@@ -39,7 +39,7 @@ def scaled_dot_product_attention(
     return output, attn
 
 
-def build_causal_mask(seq_len: int, device=None) -> torch.Tensor:
+def build_causal_mask(seq_len: int, device: torch.device | None = None) -> torch.Tensor:
     """
     Returns a (1, 1, T, T) lower-triangular mask of 1s and 0s.
     Leading singleton dims let it broadcast over (B, H).
@@ -93,7 +93,8 @@ class SingleHeadAttention(nn.Module):
 
         # Drop the head dim and project.
         out = out.squeeze(1)  # (B, T, D)
-        return self.W_o(out)
+        out = self.W_o(out)
+        return out  # type: ignore[no-any-return]
 
 
 class MultiHeadAttention(nn.Module):
@@ -163,4 +164,4 @@ class MultiHeadAttention(nn.Module):
         # Merge heads and project.
         out = self._merge_heads(out)  # (B, T, D)
         out = self.resid_dropout(self.W_o(out))  # (B, T, D)
-        return out
+        return out  # type: ignore[no-any-return]
