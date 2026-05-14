@@ -1,13 +1,14 @@
 import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 
 def scaled_dot_product_attention(
-    q: torch.Tensor,            # (..., T, d_k)
-    k: torch.Tensor,            # (..., T, d_k)
-    v: torch.Tensor,            # (..., T, d_v)
+    q: torch.Tensor,  # (..., T, d_k)
+    k: torch.Tensor,  # (..., T, d_k)
+    v: torch.Tensor,  # (..., T, d_v)
     mask: torch.Tensor | None = None,  # broadcastable to (..., T, T); True/1 = keep, False/0 = mask
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
@@ -86,12 +87,12 @@ class SingleHeadAttention(nn.Module):
         # (B, T, D) -> (B, 1, T, D)
         q, k, v = (t.unsqueeze(1) for t in (q, k, v))
 
-        mask = self.causal_mask[:, :, :T, :T]   # (1, 1, T, T)
+        mask = self.causal_mask[:, :, :T, :T]  # (1, 1, T, T)
         out, _ = scaled_dot_product_attention(q, k, v, mask)
         out = self.dropout(out)
 
         # Drop the head dim and project.
-        out = out.squeeze(1)                     # (B, T, D)
+        out = out.squeeze(1)  # (B, T, D)
         return self.W_o(out)
 
 
@@ -133,14 +134,14 @@ class MultiHeadAttention(nn.Module):
     def _split_heads(self, x: torch.Tensor) -> torch.Tensor:
         """(B, T, D) -> (B, H, T, d_h)"""
         B, T, D = x.shape
-        x = x.view(B, T, self.num_heads, self.d_head)   # (B, T, H, d_h)
-        return x.transpose(1, 2)                         # (B, H, T, d_h)
+        x = x.view(B, T, self.num_heads, self.d_head)  # (B, T, H, d_h)
+        return x.transpose(1, 2)  # (B, H, T, d_h)
 
     def _merge_heads(self, x: torch.Tensor) -> torch.Tensor:
         """(B, H, T, d_h) -> (B, T, D)"""
         B, H, T, d_h = x.shape
-        x = x.transpose(1, 2).contiguous()               # (B, T, H, d_h)
-        return x.view(B, T, H * d_h)                     # (B, T, D)
+        x = x.transpose(1, 2).contiguous()  # (B, T, H, d_h)
+        return x.view(B, T, H * d_h)  # (B, T, D)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: (B, T, D)
@@ -148,18 +149,18 @@ class MultiHeadAttention(nn.Module):
         assert D == self.d_model
 
         # Project, then split into heads.
-        q = self._split_heads(self.W_q(x))   # (B, H, T, d_h)
-        k = self._split_heads(self.W_k(x))   # (B, H, T, d_h)
-        v = self._split_heads(self.W_v(x))   # (B, H, T, d_h)
+        q = self._split_heads(self.W_q(x))  # (B, H, T, d_h)
+        k = self._split_heads(self.W_k(x))  # (B, H, T, d_h)
+        v = self._split_heads(self.W_v(x))  # (B, H, T, d_h)
 
         # Slice the causal mask to the actual seq length.
-        mask = self.causal_mask[:, :, :T, :T]   # (1, 1, T, T) — broadcasts over (B, H)
+        mask = self.causal_mask[:, :, :T, :T]  # (1, 1, T, T) — broadcasts over (B, H)
 
         # Reuse the function from Pass 1.
         out, attn = scaled_dot_product_attention(q, k, v, mask)
-        out = self.attn_dropout(out)             # (B, H, T, d_h)
+        out = self.attn_dropout(out)  # (B, H, T, d_h)
 
         # Merge heads and project.
-        out = self._merge_heads(out)             # (B, T, D)
+        out = self._merge_heads(out)  # (B, T, D)
         out = self.resid_dropout(self.W_o(out))  # (B, T, D)
         return out

@@ -28,11 +28,14 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["N806", "N812"]
 
 [tool.mypy]
 python_version = "3.11"
 strict = true
 ignore_missing_imports = true
+mypy_path = "src"
+explicit_package_bases = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
