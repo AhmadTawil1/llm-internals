@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from tinygpt.rope import apply_rotary_emb, precompute_freqs_cis
+
 
 def scaled_dot_product_attention(
     q: torch.Tensor,  # (..., T, d_k)
@@ -101,6 +103,8 @@ class MultiHeadAttention(nn.Module):
     """Causal multi-head self-attention. The version you'll actually use."""
 
     causal_mask: torch.Tensor
+    cos: torch.Tensor
+    sin: torch.Tensor
 
     def __init__(
         self,
@@ -132,6 +136,10 @@ class MultiHeadAttention(nn.Module):
             persistent=False,
         )
 
+        cos, sin = precompute_freqs_cis(self.d_head, max_seq_len)
+        self.register_buffer("cos", cos, persistent=False)
+        self.register_buffer("sin", sin, persistent=False)
+
     def _split_heads(self, x: torch.Tensor) -> torch.Tensor:
         """(B, T, D) -> (B, H, T, d_h)"""
         B, T, D = x.shape
@@ -149,10 +157,18 @@ class MultiHeadAttention(nn.Module):
         B, T, D = x.shape
         assert D == self.d_model
 
-        # Project, then split into heads.
-        q = self._split_heads(self.W_q(x))  # (B, H, T, d_h)
-        k = self._split_heads(self.W_k(x))  # (B, H, T, d_h)
-        v = self._split_heads(self.W_v(x))  # (B, H, T, d_h)
+        # Project to (B, T, H, d_h)
+        q = self.W_q(x).view(B, T, self.num_heads, self.d_head)
+        k = self.W_k(x).view(B, T, self.num_heads, self.d_head)
+        v = self.W_v(x).view(B, T, self.num_heads, self.d_head)
+
+        # Apply RoPE to queries and keys
+        q, k = apply_rotary_emb(q, k, self.cos[:T], self.sin[:T])
+
+        # Transpose to (B, H, T, d_h) for attention
+        q = q.transpose(1, 2)
+        k = k.transpose(1, 2)
+        v = v.transpose(1, 2)
 
         # Slice the causal mask to the actual seq length.
         mask = self.causal_mask[:, :, :T, :T]  # (1, 1, T, T) — broadcasts over (B, H)
