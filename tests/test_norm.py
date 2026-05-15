@@ -7,6 +7,7 @@ from tinygpt.norm import RMSNorm
 
 # ── Sanity check from the exercise prompt ────────────────────────────────────
 
+
 class TestRMSNormBasic:
     """Hand-computed example: x = [1, 2, 3, 4], gain = ones."""
 
@@ -37,6 +38,7 @@ class TestRMSNormBasic:
 
 # ── Float32 up-casting ────────────────────────────────────────────────────────
 
+
 class TestRMSNormDtype:
     """Verify that bf16 inputs produce bf16 outputs (computed in f32 internally)."""
 
@@ -55,6 +57,7 @@ class TestRMSNormDtype:
 
 
 # ── Unit-norm property ────────────────────────────────────────────────────────
+
 
 class TestRMSNormProperty:
     """After RMSNorm (with gain=1), the RMS of the output should be ≈ 1."""

@@ -7,8 +7,8 @@ from tinygpt.rope import apply_rotary_emb, precompute_freqs_cis
 
 # ── precompute_freqs_cis ─────────────────────────────────────────────────────
 
-class TestPrecomputeFreqsCis:
 
+class TestPrecomputeFreqsCis:
     def test_output_shapes(self) -> None:
         dim, end = 8, 16
         cos, sin = precompute_freqs_cis(dim, end)
@@ -37,8 +37,8 @@ class TestPrecomputeFreqsCis:
 
 # ── apply_rotary_emb ─────────────────────────────────────────────────────────
 
-class TestApplyRotaryEmb:
 
+class TestApplyRotaryEmb:
     def test_output_shapes(self) -> None:
         B, T, H, D = 2, 8, 4, 16
         xq = torch.randn(B, T, H, D)
@@ -135,8 +135,8 @@ class TestApplyRotaryEmb:
 
 # ── Dtype preservation ────────────────────────────────────────────────────────
 
-class TestRoPEDtype:
 
+class TestRoPEDtype:
     def test_fp16_output_dtype(self) -> None:
         B, T, H, D = 1, 4, 2, 8
         cos, sin = precompute_freqs_cis(D, T)
