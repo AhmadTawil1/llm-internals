@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 
+_DEFAULT_EPS = 1e-6
+
 
 class RMSNorm(nn.Module):
     """Root Mean Square Layer Normalization (Zhang & Sennrich, 2019).
@@ -17,7 +19,7 @@ class RMSNorm(nn.Module):
     where g ∈ ℝᵈ is a learnable per-dimension gain (initialized to ones).
     """
 
-    def __init__(self, dim: int, eps: float = 1e-6):
+    def __init__(self, dim: int, eps: float = _DEFAULT_EPS):
         super().__init__()
         self.eps = eps
         # Learnable per-dimension gain, initialized to ones.

@@ -22,6 +22,34 @@ class TestRMSNormBasic:
 
         torch.testing.assert_close(out, expected, atol=1e-5, rtol=1e-5)
 
+    def test_hand_computed_reference(self) -> None:
+        """Exact formula check with non-trivial gain and explicit eps.
+
+        x    = [3, -4, 0, 5]
+        gain = [2, 1, 0.5, 3]
+        eps  = 1e-6
+
+        mean_sq = (9 + 16 + 0 + 25) / 4 = 12.5
+        rms     = sqrt(12.5 + 1e-6)
+        output  = (x / rms) * gain
+        """
+        eps = 1e-6
+        x = torch.tensor([[3.0, -4.0, 0.0, 5.0]])
+        norm = RMSNorm(4, eps=eps)
+        with torch.no_grad():
+            norm.gain.copy_(torch.tensor([2.0, 1.0, 0.5, 3.0]))
+
+        out = norm(x)
+
+        rms = math.sqrt(12.5 + eps)
+        expected = torch.tensor([[
+            3.0 / rms * 2.0,
+            -4.0 / rms * 1.0,
+            0.0 / rms * 0.5,
+            5.0 / rms * 3.0,
+        ]])
+        torch.testing.assert_close(out, expected, atol=1e-6, rtol=0)
+
     def test_output_shape(self) -> None:
         """RMSNorm should not change the shape of its input."""
         x = torch.randn(2, 8, 64)  # (B, T, D)

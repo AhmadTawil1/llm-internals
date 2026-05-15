@@ -1,3 +1,5 @@
+from typing import cast
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -32,4 +34,4 @@ class SwiGLU(nn.Module):
         # x: (B, T, d_model)
         # gate and up are both (B, T, d_ff)
         # element-wise multiply after silu gating, then project back down
-        return self.down_proj(F.silu(self.gate_proj(x)) * self.up_proj(x))  # type: ignore[no-any-return]
+        return cast(torch.Tensor, self.down_proj(F.silu(self.gate_proj(x)) * self.up_proj(x)))

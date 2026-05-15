@@ -72,44 +72,36 @@ class TestApplyRotaryEmb:
         norm_after = q_out.norm(dim=-1)
         torch.testing.assert_close(norm_before, norm_after, atol=1e-4, rtol=1e-4)
 
-    def test_relative_position_invariance(self) -> None:
-        """The dot product q·k should depend only on the RELATIVE position
-        (m − n), not the absolute positions m and n.
+    @pytest.mark.parametrize("delta", [1, 3, 7, 15])
+    def test_relative_position_invariance(self, delta: int) -> None:
+        """RoPE(q, m) · RoPE(k, n) depends only on (n − m), not on m or n alone.
 
-        Claim:  RoPE(q, m) · RoPE(k, n)  =  f(q, k, m − n)
-
-        We test three (m, n) pairs that all share the same offset n − m = 3:
-            (5, 8),  (10, 13),  (20, 23)
-        All three must produce the same dot product (within fp32 tolerance).
-
-        Then we test a pair with a DIFFERENT offset (5, 10) → offset 5, and
-        assert the dot product is NOT equal to the others.
+        Three pairs that share the same relative distance must produce the same
+        dot product within 1e-5.  A pair with a different distance must diverge.
         """
         torch.manual_seed(0)
-        head_dim = 64
-        seq_len = 64
+        head_dim, seq_len = 64, 64
         cos, sin = precompute_freqs_cis(head_dim, seq_len)
 
         q = torch.randn(1, 1, 1, head_dim)
         k = torch.randn(1, 1, 1, head_dim)
 
         def rotated_dot(m: int, n: int) -> float:
-            """Rotate q to position m, k to position n, return their dot product."""
             q_rot, _ = apply_rotary_emb(q, q, cos[m : m + 1], sin[m : m + 1])
             _, k_rot = apply_rotary_emb(k, k, cos[n : n + 1], sin[n : n + 1])
             return (q_rot * k_rot).sum().item()
 
-        # ── Same relative distance (n − m = 3) → same dot product ──
-        d1 = rotated_dot(5, 8)
-        d2 = rotated_dot(10, 13)
-        d3 = rotated_dot(20, 23)
-        assert abs(d1 - d2) < 1e-5, f"d1={d1}, d2={d2}"
-        assert abs(d1 - d3) < 1e-5, f"d1={d1}, d3={d3}"
+        # Three pairs all at relative distance delta — must agree within 1e-5.
+        d1 = rotated_dot(0, delta)
+        d2 = rotated_dot(delta, 2 * delta)
+        d3 = rotated_dot(2 * delta, 3 * delta)
+        assert abs(d1 - d2) < 1e-5, f"delta={delta}: d1={d1:.7f}, d2={d2:.7f}"
+        assert abs(d1 - d3) < 1e-5, f"delta={delta}: d1={d1:.7f}, d3={d3:.7f}"
 
-        # ── Different relative distance (n − m = 5) → different dot product ──
-        d_other = rotated_dot(5, 10)
+        # A pair at a different relative distance must give a different dot product.
+        d_other = rotated_dot(0, delta + 1)
         assert abs(d1 - d_other) > 1e-3, (
-            f"Different offsets should give different dots: d1={d1}, d_other={d_other}"
+            f"delta={delta}: same dot at different offset — d1={d1:.7f}, d_other={d_other:.7f}"
         )
 
     def test_hand_computed_rotation(self) -> None:

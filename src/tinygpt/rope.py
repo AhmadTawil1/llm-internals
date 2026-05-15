@@ -1,10 +1,12 @@
 import torch
 
+_DEFAULT_ROPE_BASE = 10_000.0
+
 
 def precompute_freqs_cis(
     dim: int,
     end: int,
-    base: float = 10_000.0,
+    base: float = _DEFAULT_ROPE_BASE,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Precompute cos and sin tables for Rotary Position Embeddings.
 
@@ -35,7 +37,7 @@ def precompute_freqs_cis(
 
     # θᵢ = base^(−2i/d)  →  shape (d/2,)
     i = torch.arange(0, dim, 2, dtype=torch.float32)  # [0, 2, 4, …, d−2]
-    freqs = base ** (-i / dim)  # equivalent to 1 / base^(2i/d)
+    freqs = base ** (-i / dim)  # (d/2,)
 
     # m = [0, 1, 2, …, end−1]  →  shape (end,)
     positions = torch.arange(end, dtype=torch.float32)
@@ -83,13 +85,13 @@ def apply_rotary_emb(
         #   x1 = x[..., :D/2]   (the "real" half)
         #   x2 = x[..., D/2:]   (the "imaginary" half)
         d_half = x.shape[-1] // 2
-        x1, x2 = x[..., :d_half], x[..., d_half:]
+        x1, x2 = x[..., :d_half], x[..., d_half:]  # each (B, T, H, d_h/2)
 
         # Apply the 2D rotation to each pair.
-        out1 = x1 * cos - x2 * sin
-        out2 = x1 * sin + x2 * cos
+        out1 = x1 * cos - x2 * sin  # (B, T, H, d_h/2)
+        out2 = x1 * sin + x2 * cos  # (B, T, H, d_h/2)
 
-        # Concatenate back to (..., D).
+        # (B, T, H, d_h/2) cat (B, T, H, d_h/2) -> (B, T, H, d_h)
         return torch.cat([out1, out2], dim=-1)
 
     xq_out = _rotate(xq_f32).to(input_dtype)

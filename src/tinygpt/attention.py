@@ -1,10 +1,11 @@
 import math
-from typing import Literal, overload
+from typing import Literal, cast, overload
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from tinygpt.config import TinyGPTConfig
 from tinygpt.rope import apply_rotary_emb, precompute_freqs_cis
 
 
@@ -33,52 +34,48 @@ def scaled_dot_product_attention(
 
     # 3. Softmax over the LAST axis (the "key" axis).
     #    Each row of the (T, T) score matrix becomes a probability distribution.
-    attn = F.softmax(scores, dim=-1)
+    attn_weights = F.softmax(scores, dim=-1)
 
     # NaN replacement for fully masked pad rows.
     # If a query is a pad token, its entire row is masked to -inf, causing softmax
     # to yield NaN. We replace these NaNs with 0.0 because the loss ignores pad tokens.
-    attn = torch.nan_to_num(attn, nan=0.0)
+    attn_weights = torch.nan_to_num(attn_weights, nan=0.0)
 
     # 4. Weighted sum of values.
     #    (..., T, T) @ (..., T, d_v) -> (..., T, d_v)
-    output = torch.matmul(attn, v)
+    out = torch.matmul(attn_weights, v)
 
-    return output, attn
+    return out, attn_weights
 
-
-def build_causal_mask(seq_len: int, device: torch.device | None = None) -> torch.Tensor:
-    """
-    Returns a (1, 1, T, T) lower-triangular mask of 1s and 0s.
-    Leading singleton dims let it broadcast over (B, H).
-    """
-    mask = torch.tril(torch.ones(seq_len, seq_len, device=device))
-    return mask.view(1, 1, seq_len, seq_len)
 
 
 class SingleHeadAttention(nn.Module):
-    """Single-head attention. Throwaway — you'll replace with MultiHeadAttention.
-    Implementing it first keeps the moving parts visible."""
+    """Single-head attention.
+
+    Pedagogical reference; see MultiHeadAttention for the full implementation.
+    """
 
     causal_mask: torch.Tensor
 
-    def __init__(self, d_model: int, max_seq_len: int = 1024, dropout: float = 0.0):
+    def __init__(self, config: TinyGPTConfig):
         super().__init__()
-        self.d_model = d_model
+        self.d_model = config.d_model
 
         # Three independent linear projections. bias=False is the modern default
         # (LLaMA, Qwen, Mistral all drop the bias on Q/K/V).
-        self.W_q = nn.Linear(d_model, d_model, bias=False)
-        self.W_k = nn.Linear(d_model, d_model, bias=False)
-        self.W_v = nn.Linear(d_model, d_model, bias=False)
-        self.W_o = nn.Linear(d_model, d_model, bias=False)
+        self.W_q = nn.Linear(config.d_model, config.d_model, bias=False)
+        self.W_k = nn.Linear(config.d_model, config.d_model, bias=False)
+        self.W_v = nn.Linear(config.d_model, config.d_model, bias=False)
+        self.W_o = nn.Linear(config.d_model, config.d_model, bias=False)
 
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(config.dropout)
 
         # Pre-build causal mask up to max_seq_len; slice at forward time.
         self.register_buffer(
             "causal_mask",
-            torch.tril(torch.ones(max_seq_len, max_seq_len)).view(1, 1, max_seq_len, max_seq_len),
+            torch.tril(torch.ones(config.max_seq_len, config.max_seq_len)).view(
+                1, 1, config.max_seq_len, config.max_seq_len
+            ),
             persistent=False,
         )
 
@@ -88,8 +85,8 @@ class SingleHeadAttention(nn.Module):
         assert D == self.d_model, f"expected d_model={self.d_model}, got {D}"
 
         q = self.W_q(x)  # (B, T, D)
-        k = self.W_k(x)
-        v = self.W_v(x)
+        k = self.W_k(x)  # (B, T, D)
+        v = self.W_v(x)  # (B, T, D)
 
         # Add a singleton head dim so we can reuse the same code as multi-head.
         # (B, T, D) -> (B, 1, T, D)
@@ -101,12 +98,12 @@ class SingleHeadAttention(nn.Module):
 
         # Drop the head dim and project.
         out = out.squeeze(1)  # (B, T, D)
-        out = self.W_o(out)
-        return out  # type: ignore[no-any-return]
+        out = cast(torch.Tensor, self.W_o(out))
+        return out
 
 
 class MultiHeadAttention(nn.Module):
-    """Causal multi-head self-attention. The version you'll actually use."""
+    """Causal multi-head self-attention with RoPE and causal masking."""
 
     causal_mask: torch.Tensor
     cos: torch.Tensor
@@ -114,43 +111,34 @@ class MultiHeadAttention(nn.Module):
 
     def __init__(
         self,
-        d_model: int,
-        num_heads: int,
-        max_seq_len: int = 1024,
-        dropout: float = 0.0,
+        config: TinyGPTConfig,
     ):
         super().__init__()
-        assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
-
-        self.d_model = d_model
-        self.num_heads = num_heads
-        self.d_head = d_model // num_heads
+        self.d_model = config.d_model
+        self.num_heads = config.n_heads
+        self.d_head = config.head_dim
 
         # One fused projection for Q, K, V is faster (one matmul instead of three),
-        # but three separate ones are easier to read. Stick with three for Project 0.
-        self.W_q = nn.Linear(d_model, d_model, bias=False)
-        self.W_k = nn.Linear(d_model, d_model, bias=False)
-        self.W_v = nn.Linear(d_model, d_model, bias=False)
-        self.W_o = nn.Linear(d_model, d_model, bias=False)
+        # but three separate ones are easier to read.
+        self.W_q = nn.Linear(config.d_model, config.d_model, bias=False)
+        self.W_k = nn.Linear(config.d_model, config.d_model, bias=False)
+        self.W_v = nn.Linear(config.d_model, config.d_model, bias=False)
+        self.W_o = nn.Linear(config.d_model, config.d_model, bias=False)
 
-        self.attn_dropout = nn.Dropout(dropout)
-        self.resid_dropout = nn.Dropout(dropout)
+        self.attn_dropout = nn.Dropout(config.dropout)
+        self.resid_dropout = nn.Dropout(config.dropout)
 
         self.register_buffer(
             "causal_mask",
-            torch.tril(torch.ones(max_seq_len, max_seq_len)).view(1, 1, max_seq_len, max_seq_len),
+            torch.tril(torch.ones(config.max_seq_len, config.max_seq_len)).view(
+                1, 1, config.max_seq_len, config.max_seq_len
+            ),
             persistent=False,
         )
 
-        cos, sin = precompute_freqs_cis(self.d_head, max_seq_len)
+        cos, sin = precompute_freqs_cis(self.d_head, config.max_seq_len, base=config.rope_base)
         self.register_buffer("cos", cos, persistent=False)
         self.register_buffer("sin", sin, persistent=False)
-
-    def _split_heads(self, x: torch.Tensor) -> torch.Tensor:
-        """(B, T, D) -> (B, H, T, d_h)"""
-        B, T, D = x.shape
-        x = x.view(B, T, self.num_heads, self.d_head)  # (B, T, H, d_h)
-        return x.transpose(1, 2)  # (B, H, T, d_h)
 
     def _merge_heads(self, x: torch.Tensor) -> torch.Tensor:
         """(B, H, T, d_h) -> (B, T, D)"""
@@ -184,15 +172,15 @@ class MultiHeadAttention(nn.Module):
         B, T, D = x.shape
         assert D == self.d_model
 
-        # Project to (B, T, H, d_h)
+        # (B, T, D) -> (B, T, H, d_h)
         q = self.W_q(x).view(B, T, self.num_heads, self.d_head)
         k = self.W_k(x).view(B, T, self.num_heads, self.d_head)
         v = self.W_v(x).view(B, T, self.num_heads, self.d_head)
 
-        # Apply RoPE to queries and keys
+        # (B, T, H, d_h) — shape preserved, rotations applied positionally
         q, k = apply_rotary_emb(q, k, self.cos[:T], self.sin[:T])
 
-        # Transpose to (B, H, T, d_h) for attention
+        # (B, T, H, d_h) -> (B, H, T, d_h)
         q = q.transpose(1, 2)
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
@@ -207,14 +195,14 @@ class MultiHeadAttention(nn.Module):
             # Combine causal and pad masks
             mask = torch.logical_and(mask, pad_mask)
 
-        # Reuse the function from Pass 1.
-        out, attn = scaled_dot_product_attention(q, k, v, mask)
+        # out: (B, H, T, d_h)  attn_weights: (B, H, T, T)
+        out, attn_weights = scaled_dot_product_attention(q, k, v, mask)
         out = self.attn_dropout(out)  # (B, H, T, d_h)
 
         # Merge heads and project.
         out = self._merge_heads(out)  # (B, T, D)
-        out = self.resid_dropout(self.W_o(out))  # (B, T, D)
+        out = cast(torch.Tensor, self.resid_dropout(self.W_o(out)))  # (B, T, D)
 
         if return_weights:
-            return out, attn
-        return out  # type: ignore[no-any-return]
+            return out, attn_weights
+        return out
