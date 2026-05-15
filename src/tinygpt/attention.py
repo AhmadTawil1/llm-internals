@@ -1,4 +1,5 @@
 import math
+from typing import Literal, overload
 
 import torch
 import torch.nn as nn
@@ -33,6 +34,11 @@ def scaled_dot_product_attention(
     # 3. Softmax over the LAST axis (the "key" axis).
     #    Each row of the (T, T) score matrix becomes a probability distribution.
     attn = F.softmax(scores, dim=-1)
+
+    # NaN replacement for fully masked pad rows.
+    # If a query is a pad token, its entire row is masked to -inf, causing softmax
+    # to yield NaN. We replace these NaNs with 0.0 because the loss ignores pad tokens.
+    attn = torch.nan_to_num(attn, nan=0.0)
 
     # 4. Weighted sum of values.
     #    (..., T, T) @ (..., T, d_v) -> (..., T, d_v)
@@ -152,7 +158,28 @@ class MultiHeadAttention(nn.Module):
         x = x.transpose(1, 2).contiguous()  # (B, T, H, d_h)
         return x.view(B, T, H * d_h)  # (B, T, D)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    @overload
+    def forward(
+        self,
+        x: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+        return_weights: Literal[False] = False,
+    ) -> torch.Tensor: ...
+
+    @overload
+    def forward(
+        self,
+        x: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+        return_weights: Literal[True] = True,
+    ) -> tuple[torch.Tensor, torch.Tensor]: ...
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+        return_weights: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
         # x: (B, T, D)
         B, T, D = x.shape
         assert D == self.d_model
@@ -173,6 +200,13 @@ class MultiHeadAttention(nn.Module):
         # Slice the causal mask to the actual seq length.
         mask = self.causal_mask[:, :, :T, :T]  # (1, 1, T, T) — broadcasts over (B, H)
 
+        # Pad mask
+        if attention_mask is not None:
+            # attention_mask: (B, T) -> (B, 1, 1, T) so it broadcasts over heads and query positions
+            pad_mask = attention_mask[:, None, None, :]
+            # Combine causal and pad masks
+            mask = torch.logical_and(mask, pad_mask)
+
         # Reuse the function from Pass 1.
         out, attn = scaled_dot_product_attention(q, k, v, mask)
         out = self.attn_dropout(out)  # (B, H, T, d_h)
@@ -180,4 +214,7 @@ class MultiHeadAttention(nn.Module):
         # Merge heads and project.
         out = self._merge_heads(out)  # (B, T, D)
         out = self.resid_dropout(self.W_o(out))  # (B, T, D)
+
+        if return_weights:
+            return out, attn
         return out  # type: ignore[no-any-return]

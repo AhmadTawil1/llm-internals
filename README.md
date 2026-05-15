@@ -28,6 +28,8 @@ _Training runs and KV-cache latency benchmarks coming Week 3–4._
 
 ## What I learned
 
+- **Pad Masking and NaNs**: When a query position is itself a pad token, its entire row in the attention `scores` matrix becomes `-inf` after pad masking. Running `softmax(-inf, -inf, ..., -inf)` yields `NaN`, rather than a uniform distribution! This poisons the batch. The fix is a precise `torch.nan_to_num(attn, nan=0.0)` immediately after the softmax. The loss correctly ignores these padding positions later due to `ignore_index=pad_id`, but dealing with the NaNs here is critical for training stability.
+
 _Coming Week 5 — the honest version, including at least one mistake._
 
 ## What's next
