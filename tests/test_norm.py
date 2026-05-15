@@ -42,12 +42,16 @@ class TestRMSNormBasic:
         out = norm(x)
 
         rms = math.sqrt(12.5 + eps)
-        expected = torch.tensor([[
-            3.0 / rms * 2.0,
-            -4.0 / rms * 1.0,
-            0.0 / rms * 0.5,
-            5.0 / rms * 3.0,
-        ]])
+        expected = torch.tensor(
+            [
+                [
+                    3.0 / rms * 2.0,
+                    -4.0 / rms * 1.0,
+                    0.0 / rms * 0.5,
+                    5.0 / rms * 3.0,
+                ]
+            ]
+        )
         torch.testing.assert_close(out, expected, atol=1e-6, rtol=0)
 
     def test_output_shape(self) -> None:

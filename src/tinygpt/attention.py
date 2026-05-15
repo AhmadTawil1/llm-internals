@@ -48,7 +48,6 @@ def scaled_dot_product_attention(
     return out, attn_weights
 
 
-
 class SingleHeadAttention(nn.Module):
     """Single-head attention.
 
