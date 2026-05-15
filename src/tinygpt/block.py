@@ -34,8 +34,8 @@ class TransformerBlock(nn.Module):
         self.ffn_norm = RMSNorm(d_model, eps=eps)
         self.ffn = SwiGLU(d_model, d_ff)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, attention_mask: torch.Tensor | None = None) -> torch.Tensor:
         # x: (B, T, d_model)
-        x = x + self.attn(self.attn_norm(x))
+        x = x + self.attn(self.attn_norm(x), attention_mask=attention_mask)
         x = x + self.ffn(self.ffn_norm(x))
         return x
